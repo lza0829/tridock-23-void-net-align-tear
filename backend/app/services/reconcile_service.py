@@ -1,5 +1,5 @@
-from app.services import void_lie
 from __future__ import annotations
+
 from datetime import datetime, timezone
 import sqlite3
 

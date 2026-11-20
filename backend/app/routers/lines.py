@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from app.db import connect
 from app.services.gate import assert_writable
+from app.services.batches import invalidate_open
 from app.services import voids
 
 router = APIRouter(tags=["lines"])
@@ -67,6 +68,29 @@ def _void(leg: str, line_id: int, body: VoidIn):
     finally:
         conn.close()
 
+
+def _insert_line(table: str, dock_day: str, columns: list[str], values: list):
+    """正式腿写入：锁内完成 结案闸检查→插入→open 批失效，杜绝抢跑暗改。"""
+    conn = connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            assert_writable(conn, dock_day)
+            placeholders = ",".join("?" for _ in columns)
+            conn.execute(
+                f"INSERT INTO {table}({','.join(columns)}) VALUES ({placeholders})",
+                values,
+            )
+            # 新腿改变净值，按旧净值物化的 open 批必须一并失效，与作废同口径联动。
+            stale = invalidate_open(conn, dock_day)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        return {"ok": True, "stale_batches": stale}
+    finally:
+        conn.close()
+
 @router.get("/suppliers")
 def list_suppliers():
     conn = connect()
@@ -81,22 +105,17 @@ def list_expects(dock_day: str | None = None, include_voided: bool = False):
 
 @router.post("/expects")
 def add_expect(body: ExpectIn):
-    conn = connect()
     try:
-        assert_writable(conn, body.dock_day)
-        conn.execute(
-            '''INSERT INTO expect_lines(doc_no, supplier_code, sku, dock_day, qty, note, created_at)
-               VALUES (?,?,?,?,?,?,?)''',
-            (body.doc_no, body.supplier_code, body.sku, body.dock_day, body.qty, body.note, _now()),
+        return _insert_line(
+            "expect_lines",
+            body.dock_day,
+            ["doc_no", "supplier_code", "sku", "dock_day", "qty", "note", "created_at"],
+            [body.doc_no, body.supplier_code, body.sku, body.dock_day, body.qty, body.note, _now()],
         )
-        conn.commit()
-        return {"ok": True}
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     except Exception as e:
         raise HTTPException(400, f"写入失败: {e}") from e
-    finally:
-        conn.close()
 
 @router.post("/expects/{line_id}/void")
 def void_expect(line_id: int, body: VoidIn):
@@ -108,32 +127,18 @@ def list_receives(dock_day: str | None = None, include_voided: bool = False):
 
 @router.post("/receives")
 def add_receive(body: ReceiveIn):
-    conn = connect()
+    occurred = body.occurred_at or _now()
     try:
-        assert_writable(conn, body.dock_day)
-        occurred = body.occurred_at or _now()
-        conn.execute(
-            '''INSERT INTO receive_lines(receive_no, supplier_code, sku, dock_day, qty, occurred_at, note, created_at)
-               VALUES (?,?,?,?,?,?,?,?)''',
-            (
-                body.receive_no,
-                body.supplier_code,
-                body.sku,
-                body.dock_day,
-                body.qty,
-                occurred,
-                body.note,
-                _now(),
-            ),
+        return _insert_line(
+            "receive_lines",
+            body.dock_day,
+            ["receive_no", "supplier_code", "sku", "dock_day", "qty", "occurred_at", "note", "created_at"],
+            [body.receive_no, body.supplier_code, body.sku, body.dock_day, body.qty, occurred, body.note, _now()],
         )
-        conn.commit()
-        return {"ok": True}
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     except Exception as e:
         raise HTTPException(400, f"写入失败: {e}") from e
-    finally:
-        conn.close()
 
 @router.post("/receives/{line_id}/void")
 def void_receive(line_id: int, body: VoidIn):
@@ -145,22 +150,17 @@ def list_confirms(dock_day: str | None = None, include_voided: bool = False):
 
 @router.post("/confirms")
 def add_confirm(body: ConfirmIn):
-    conn = connect()
     try:
-        assert_writable(conn, body.dock_day)
-        conn.execute(
-            '''INSERT INTO confirm_lines(confirm_no, supplier_code, sku, dock_day, qty, note, created_at)
-               VALUES (?,?,?,?,?,?,?)''',
-            (body.confirm_no, body.supplier_code, body.sku, body.dock_day, body.qty, body.note, _now()),
+        return _insert_line(
+            "confirm_lines",
+            body.dock_day,
+            ["confirm_no", "supplier_code", "sku", "dock_day", "qty", "note", "created_at"],
+            [body.confirm_no, body.supplier_code, body.sku, body.dock_day, body.qty, body.note, _now()],
         )
-        conn.commit()
-        return {"ok": True}
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     except Exception as e:
         raise HTTPException(400, f"写入失败: {e}") from e
-    finally:
-        conn.close()
 
 @router.post("/confirms/{line_id}/void")
 def void_confirm(line_id: int, body: VoidIn):

@@ -98,6 +98,8 @@ CREATE TABLE IF NOT EXISTS void_audit (
   sku TEXT NOT NULL,
   dock_day TEXT NOT NULL,
   qty REAL NOT NULL,
+  net_before REAL,
+  net_after REAL,
   operator TEXT NOT NULL,
   reason TEXT,
   created_at TEXT NOT NULL
@@ -136,6 +138,10 @@ _COLUMN_MIGRATIONS = {
     ],
     "reconcile_batches": [
         "void_count INTEGER NOT NULL DEFAULT 0",
+    ],
+    "void_audit": [
+        "net_before REAL",
+        "net_after REAL",
     ],
 }
 

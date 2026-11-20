@@ -27,11 +27,12 @@
     <div class="panel">
       <h2>作废审计</h2>
       <table v-if="audits.length">
-        <thead><tr><th>时间</th><th>腿别</th><th>单号</th><th>供应商</th><th>货号</th><th>数量</th><th>操作人</th><th>原因</th></tr></thead>
+        <thead><tr><th>时间</th><th>腿别</th><th>单号</th><th>供应商</th><th>货号</th><th>行原值</th><th>腿净值(废前→废后)</th><th>操作人</th><th>原因</th></tr></thead>
         <tbody>
           <tr v-for="a in audits" :key="a.id">
             <td>{{ a.created_at }}</td><td>{{ legText(a.leg) }}</td><td>{{ a.doc_no }}</td>
             <td>{{ a.supplier_code }}</td><td>{{ a.sku }}</td><td>{{ a.qty }}</td>
+            <td>{{ a.net_before ?? '—' }} → {{ a.net_after ?? '—' }}</td>
             <td>{{ a.operator }}</td><td>{{ a.reason || '—' }}</td>
           </tr>
         </tbody>

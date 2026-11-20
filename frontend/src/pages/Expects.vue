@@ -8,11 +8,12 @@
         <input v-model="form.sku" placeholder="货号" />
         <input v-model="form.dock_day" placeholder="到货日" />
         <input v-model.number="form.qty" type="number" placeholder="数量" />
-        <button @click="add">登记预报</button>
+        <button @click="add" :disabled="formSealed" :title="formSealed ? '该到货日已结案' : ''">登记预报</button>
       </div>
       <div class="row">
         <input v-model="operator" placeholder="操作人（作废必填）" />
         <label><input type="checkbox" v-model="showVoided" @change="load" /> 显示已作废</label>
+        <span v-if="formSealed" class="tag seal">当前到货日已结案：新增与作废均只读</span>
       </div>
       <p class="msg">{{ err }}</p>
       <p class="okmsg">{{ ok }}</p>
@@ -22,7 +23,10 @@
           <tr v-for="r in rows" :key="r.id" :class="{ voided: r.voided }">
             <td>{{ r.doc_no }}</td><td>{{ r.supplier_code }}</td><td>{{ r.sku }}</td><td>{{ r.dock_day }}</td><td>{{ r.qty }}</td>
             <td><span v-if="r.voided" class="tag void" :title="`${r.voided_by} · ${r.void_reason || ''}`">已作废</span></td>
-            <td><button v-if="!r.voided" class="secondary" @click="voidLine(r)">作废</button></td>
+            <td>
+              <button v-if="!r.voided && !isSealedDay(r.dock_day)" class="secondary" @click="voidLine(r)">作废</button>
+              <span v-else-if="!r.voided" class="tag seal" title="该到货日已结案，变更须走订正链路">已结案只读</span>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -30,17 +34,25 @@
   </div>
 </template>
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { api } from '../api'
 const rows = ref([])
 const err = ref('')
 const ok = ref('')
 const showVoided = ref(false)
+const sealedDay = ref(null)
 const operator = ref(localStorage.getItem('operator') || '')
 const form = ref({ doc_no: '', supplier_code: 'SUP-A', sku: '', dock_day: '2026-11-18', qty: 1 })
+const formSealed = computed(() => sealedDay.value === form.value.dock_day)
+function isSealedDay(day) { return sealedDay.value === day }
 async function load() {
   err.value = ''
-  rows.value = await api(`/expects${showVoided.value ? '?include_voided=1' : ''}`)
+  const [list, dash] = await Promise.all([
+    api(`/expects${showVoided.value ? '?include_voided=1' : ''}`),
+    api('/dashboard'),
+  ])
+  rows.value = list
+  sealedDay.value = dash.sealed ? dash.dock_day : null
 }
 async function add() {
   err.value = ''; ok.value = ''
